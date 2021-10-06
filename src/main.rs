@@ -308,12 +308,34 @@ fn chromatic(p: Pitch, n: i8) -> Vec<Pitch> {
     v
 }
 
-fn prompt(s: &str) -> Result<String, io::Error> {
-    print!("{}", s);
-    std::io::stdout().flush()?;
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
-    Ok(input.trim().to_string())
+fn main_page_handler<'a>(key: console::Key) -> Action<'a> {
+    match key {
+        console::Key::Char('1') => Action::Render(Page {
+            text: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10",
+            handler: main_page_handler,
+        }),
+        console::Key::Char('2') => Action::Render(Page {
+            text: "A\nB\nC\nD\nE\nF\nG\nH\nI\nJ",
+            handler: main_page_handler,
+        }),
+        console::Key::Char('q') | console::Key::Char('Q') => Action::Destroy,
+        _ => Action::Noop,
+    }
+}
+
+fn main_page<'a>() -> Page<'a> {
+    Page {
+        text: "=== Music Theory Quiz Game ===\n\
+        \n\
+        What would you like to do?\n\
+        \n\
+        [1] Intervals\n\
+        [2] Scale Types\n\
+        [3] Chords\n\
+        \n\
+        [q] Quit",
+        handler: main_page_handler,
+    }
 }
 
 fn main() {
@@ -321,32 +343,14 @@ fn main() {
     let circle_of_fifths = circle_of_fifths();
 
     let mut term = Term::buffered_stdout();
-    let (rows, cols) = term.size();
-    term.clear_screen();
-    term.hide_cursor();
-    term.flush().unwrap();
+    let mut screen = QuizScreen::fullscreen(&term);
 
-    let border = Box::fullscreen(&term);
-    border.draw();
-
-    term.move_cursor_to(3, 2);
-    term.write(
-        "Music Theory Quiz Game \n\
-                    \n\
-                    [0] Quiz Scale Types\n\
-                    [1] Quiz Intervals"
-            .as_bytes(),
-    )
-    .unwrap();
-    term.flush().unwrap();
-
-    term.read_key();
-    term.show_cursor();
-    term.clear_screen().unwrap();
-    term.flush().unwrap();
+    screen.init().unwrap();
+    screen.run(&main_page()).unwrap();
+    screen.destroy().unwrap();
 }
 
-struct Box<'a> {
+struct QuizScreen<'a> {
     term: &'a console::Term,
     row: usize,
     col: usize,
@@ -354,10 +358,21 @@ struct Box<'a> {
     height: usize,
 }
 
-impl Box<'_> {
-    fn fullscreen(mut term: &console::Term) -> Box {
+enum Action<'a> {
+    Noop,
+    Render(Page<'a>),
+    Destroy,
+}
+
+struct Page<'a> {
+    text: &'a str,
+    handler: fn(console::Key) -> Action<'a>,
+}
+
+impl QuizScreen<'_> {
+    fn fullscreen(mut term: &console::Term) -> QuizScreen {
         let (r, c) = term.size();
-        Box {
+        QuizScreen {
             term,
             row: 0,
             col: 0,
@@ -366,8 +381,54 @@ impl Box<'_> {
         }
     }
 
-    fn draw(&self) -> io::Result<()> {
+    fn init(&self) -> io::Result<()> {
+        self.term.hide_cursor()?;
+        self.term.flush()?;
+        Ok(())
+    }
+
+    fn destroy(&self) -> io::Result<()> {
+        self.term.show_cursor()?;
+        self.term.clear_screen()?;
+        self.term.flush()?;
+        Ok(())
+    }
+
+    fn run(&mut self, start: &Page) -> io::Result<()> {
+        self.render(start)?;
+        let mut handler = start.handler;
+        loop {
+            match (handler)(self.term.read_key()?) {
+                Action::Render(page) => {
+                    handler = page.handler;
+                    self.render(&page)
+                }
+                Action::Destroy => break,
+                Action::Noop => Ok(()),
+            }?;
+        }
+        Ok(())
+    }
+
+    fn render(&mut self, page: &Page) -> io::Result<()> {
+        self.term.clear_screen()?;
+        self.border()?;
+        self.write_page(page)?;
+        self.term.flush()?;
+        Ok(())
+    }
+
+    fn write_page(&mut self, page: &Page) -> io::Result<()> {
+        for (i, line) in page.text.split("\n").enumerate() {
+            self.term.move_cursor_to(4, i + 2)?;
+            self.term.write(line.as_bytes())?;
+        }
+        Ok(())
+    }
+
+    fn border(&self) -> io::Result<()> {
         let mut term = self.term;
+
         let side = "┃".as_bytes();
         let top = "━".as_bytes();
         let tl = "┏".as_bytes();
