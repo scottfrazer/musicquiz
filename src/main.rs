@@ -1,331 +1,31 @@
 use console::Term;
-use rand::{
-    distributions::{Distribution, Standard},
-    Rng,
-};
-use regex::Regex;
-use std::convert::AsRef;
-use std::env;
-use std::io::{self, Read, Write};
-use std::thread;
-use std::time::Duration;
-use strum::IntoEnumIterator;
-use strum_macros::AsRefStr;
-use strum_macros::EnumIter;
+use rand::Rng;
+use std::io::{self, Write};
 
-const ALPHABET: [char; 7] = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+mod music;
 
-enum Bias {
-    Flat,
-    Sharp,
-}
-
-enum Interval {
-    Unison,
-    MinorSecond,
-    MajorSecond,
-    MinorThird,
-    MajorThird,
-    PerfectFourth,
-    Tritone,
-    PerfectFifth,
-    MinorSixth,
-    MajorSixth,
-    MinorSeventh,
-    MajorSeventh,
-}
-
-#[derive(Debug, EnumIter, AsRefStr, PartialEq)]
-enum ScaleType {
-    Major,
-    Minor,
-    Dorian,
-    Phrygian,
-    Lydian,
-    Mixolydian,
-    Locrian,
-}
-
-impl ScaleType {
-    fn interval_pattern(&self) -> &[i8] {
-        match self {
-            &Self::Major => &[0, 2, 2, 1, 2, 2, 2, 1],
-            &Self::Minor => &[0, 2, 1, 2, 2, 1, 2, 2],
-            &Self::Dorian => &[0, 2, 1, 2, 2, 2, 1, 2],
-            &Self::Phrygian => &[0, 1, 2, 2, 2, 1, 2, 2],
-            &Self::Lydian => &[0, 2, 2, 2, 1, 2, 2, 1],
-            &Self::Mixolydian => &[0, 2, 2, 1, 2, 2, 1, 2],
-            &Self::Locrian => &[0, 1, 2, 2, 1, 2, 2, 2],
+fn main_page() -> Page {
+    fn main_page_handler<'a>(key: console::Key, state: PageState) -> Action {
+        match key {
+            console::Key::Char('1') => Action::Render(Page {
+                text: String::from("1\n2\n3\n4\n5\n6\n7\n8\n9\n10"),
+                handler: main_page_handler,
+                state: PageState::empty(),
+            }),
+            console::Key::Char('2') => Action::Render(Page {
+                text: String::from("A\nB\nC\nD\nE\nF\nG\nH\nI\nJ"),
+                handler: main_page_handler,
+                state: PageState::empty(),
+            }),
+            console::Key::Char('3') => Action::Render(interval_quiz()),
+            console::Key::Char('q') | console::Key::Char('Q') => Action::Destroy,
+            _ => Action::Noop,
         }
     }
 
-    fn from(s: &str) -> ScaleType {
-        match &s.to_lowercase()[..] {
-            "major" => ScaleType::Major,
-            "minor" => ScaleType::Minor,
-            "dorian" => ScaleType::Dorian,
-            "phrygian" => ScaleType::Phrygian,
-            "lydian" => ScaleType::Lydian,
-            "mixolydian" => ScaleType::Mixolydian,
-            "locrian" => ScaleType::Locrian,
-            _ => ScaleType::Major, // todo
-        }
-    }
-}
-
-impl Distribution<ScaleType> for Standard {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ScaleType {
-        match rng.gen_range(0..7) {
-            0 => ScaleType::Major,
-            1 => ScaleType::Minor,
-            2 => ScaleType::Dorian,
-            3 => ScaleType::Phrygian,
-            4 => ScaleType::Lydian,
-            5 => ScaleType::Mixolydian,
-            6 => ScaleType::Locrian,
-            _ => ScaleType::Major, // can't happen
-        }
-    }
-}
-
-fn base(letter: char) -> Vec<char> {
-    let mut scale = Vec::with_capacity(7);
-    for (i, letter2) in ALPHABET.iter().enumerate() {
-        if letter != *letter2 {
-            continue;
-        }
-        for j in i..i + ALPHABET.len() {
-            scale.push(ALPHABET[j % ALPHABET.len()])
-        }
-    }
-    scale
-}
-
-fn pitch_class(letter: char) -> i8 {
-    match letter {
-        'C' => 0,
-        'D' => 2,
-        'E' => 4,
-        'F' => 5,
-        'G' => 7,
-        'A' => 9,
-        'B' => 11,
-        _ => 127, // TODO
-    }
-}
-
-fn parse_adjustment(suffix: &str) -> i8 {
-    match suffix {
-        "##" | "♯♯" | "𝄪" => 2,
-        "#" | "♯" => 1,
-        "b" | "♭" => -1,
-        "bb" | "♭♭" | "𝄫" => -2,
-        _ => 0, // TODO
-    }
-}
-
-fn pitch_class_to_letter(pc: i8, bias: Bias) -> char {
-    match bias {
-        Bias::Sharp => match pc % 12 {
-            0 | 1 => 'C',
-            2 | 3 => 'D',
-            4 => 'E',
-            5 | 6 => 'F',
-            7 | 8 => 'G',
-            9 | 10 => 'A',
-            11 => 'B',
-            _ => ' ',
-        },
-        Bias::Flat => match pc % 12 {
-            0 => 'C',
-            1 | 2 => 'D',
-            3 | 4 => 'E',
-            5 => 'F',
-            6 | 7 => 'G',
-            8 | 9 => 'A',
-            10 | 11 => 'B',
-            _ => ' ',
-        },
-    }
-}
-
-struct Chord {
-    notes: Vec<Note>,
-    name: String,
-}
-
-impl Chord {
-    fn parse(s: &str) -> Chord {
-        Chord {
-            notes: Vec::new(),
-            name: String::from("foobar"),
-        }
-    }
-}
-
-struct Scale {
-    notes: Vec<Note>,
-    scale_type: ScaleType,
-}
-
-impl Scale {
-    fn new(tonic: &Note, scale_type: ScaleType) -> Scale {
-        let mut notes = Vec::new();
-        for (j, letter) in base(tonic.spelling).iter().enumerate() {
-            let half_steps: i8 = scale_type.interval_pattern()[..j + 1].iter().sum();
-            let degree = tonic.add(half_steps, *letter);
-            notes.push(degree)
-        }
-        Scale { notes, scale_type }
-    }
-
-    fn string(&self) -> String {
-        let strings: Vec<String> = self.notes.iter().map(|x| x.string()).collect();
-        let scale = strings.join(" ");
-        format!(
-            "{} {}: {}",
-            self.tonic().string(),
-            self.scale_type.as_ref(),
-            scale,
-        )
-    }
-
-    fn tonic(&self) -> &Note {
-        self.notes.get(0).unwrap()
-    }
-}
-
-struct Pitch {
-    pitch_class: i8,
-    octave: i8,
-}
-
-impl Pitch {
-    fn parse(s: String) -> Pitch {
-        let re = Regex::new(r"([ABCDEFG])([#♯𝄪b♭𝄫]*)([0-9]+)").unwrap();
-        let mut pc: i8 = 0;
-        let mut o: i8 = 0;
-        for caps in re.captures_iter(&s) {
-            let letter = caps.get(1).unwrap().as_str();
-            let suffix = caps.get(2).unwrap().as_str();
-            let octave = caps.get(3).unwrap().as_str();
-            pc = pitch_class(letter.chars().next().unwrap()) + parse_adjustment(suffix);
-            o = octave.parse().unwrap();
-        }
-        Pitch {
-            pitch_class: pc,
-            octave: o,
-        }
-    }
-    fn string(&self, bias: Bias) -> String {
-        format!("{}{}", self.note(bias).string(), self.octave)
-    }
-    fn note(&self, bias: Bias) -> Note {
-        Note {
-            spelling: pitch_class_to_letter(self.pitch_class, bias),
-            pitch_class: self.pitch_class,
-        }
-    }
-    fn frequency(&self) -> f64 {
-        return 0.0;
-    }
-}
-
-fn circle_of_fifths() -> Vec<Note> {
-    [
-        "C", "F", "Bb", "Eb", "Ab", "Db", "Gb", "F#", "B", "E", "A", "D", "G",
-    ]
-    .iter()
-    .map(|x| Note::parse(*x))
-    .collect()
-}
-struct Note {
-    spelling: char,
-    pitch_class: i8,
-}
-
-impl Note {
-    fn string(&self) -> String {
-        match self.adjustment() {
-            2 => format!("{}𝄪", self.spelling),
-            1 => format!("{}♯", self.spelling),
-            0 => String::from(self.spelling),
-            -1 => format!("{}♭", self.spelling),
-            -2 => format!("{}𝄫", self.spelling),
-            _ => String::from("invalid"), // TODO
-        }
-    }
-
-    fn add(&self, adjustment: i8, spelling: char) -> Note {
-        Note {
-            spelling,
-            pitch_class: (self.pitch_class + adjustment) % 12,
-        }
-    }
-
-    fn incr(&self, interval: Interval, bias: Bias) -> Note {
-        let pitch_class = self.pitch_class + interval as i8;
-        Note {
-            pitch_class,
-            spelling: pitch_class_to_letter(pitch_class, bias),
-        }
-    }
-
-    fn adjustment(&self) -> i8 {
-        if self.pitch_class == 11 && self.spelling == 'C' {
-            -1
-        } else {
-            self.pitch_class - pitch_class(self.spelling)
-        }
-    }
-
-    fn parse(s: &str) -> Note {
-        let (first_char, suffix) = s.split_at(1);
-        let spelling = first_char.chars().next().unwrap();
-        let adjustment = parse_adjustment(suffix);
-        Note {
-            spelling,
-            pitch_class: (pitch_class(spelling) + adjustment) % 12,
-        }
-    }
-
-    fn new(spelling: char, pitch_class: i8) -> Note {
-        Note {
-            spelling,
-            pitch_class: pitch_class % 12,
-        }
-    }
-}
-
-fn chromatic(p: Pitch, n: i8) -> Vec<Pitch> {
-    let mut v = Vec::new();
-    for i in 0..n {
-        v.push(Pitch {
-            pitch_class: (p.pitch_class + i) % 12,
-            octave: (p.pitch_class + i) / 12,
-        })
-    }
-    v
-}
-
-fn main_page_handler<'a>(key: console::Key) -> Action<'a> {
-    match key {
-        console::Key::Char('1') => Action::Render(Page {
-            text: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10",
-            handler: main_page_handler,
-        }),
-        console::Key::Char('2') => Action::Render(Page {
-            text: "A\nB\nC\nD\nE\nF\nG\nH\nI\nJ",
-            handler: main_page_handler,
-        }),
-        console::Key::Char('q') | console::Key::Char('Q') => Action::Destroy,
-        _ => Action::Noop,
-    }
-}
-
-fn main_page<'a>() -> Page<'a> {
     Page {
-        text: "=== Music Theory Quiz Game ===\n\
+        text: String::from(
+            "=== Music Theory Quiz Game ===\n\
         \n\
         What would you like to do?\n\
         \n\
@@ -334,20 +34,139 @@ fn main_page<'a>() -> Page<'a> {
         [3] Chords\n\
         \n\
         [q] Quit",
+        ),
         handler: main_page_handler,
+        state: PageState::empty(),
+    }
+}
+
+fn interval_quiz() -> Page {
+    let rng = rand::thread_rng();
+    let circle_of_fifths = music::circle_of_fifths();
+
+    fn random_scale(mut rng: rand::rngs::ThreadRng, notes: Vec<music::Note>) -> music::Scale {
+        let random_tonic = notes.get(rng.gen_range(0..notes.len())).unwrap();
+        let random_type: music::ScaleType = rng.gen();
+        music::Scale::new(random_tonic, random_type)
+    }
+
+    let scale = random_scale(rng, circle_of_fifths);
+
+    let choices: Vec<String> = music::ScaleType::all()
+        .iter()
+        .enumerate()
+        .map(|x| format!("[{}] {}", x.0 + 1, (*x.1).as_ref()))
+        .collect();
+
+    let correct_choice = music::ScaleType::all()
+        .iter()
+        .position(|t| *t == scale.scale_type())
+        .unwrap();
+
+    let text: String = format!(
+        "What kind of scale is this?\n\
+        \n\
+        {}\n\
+        \n\
+        {}\n\
+        \n\
+        [m] Main Menu\n\
+        [q] Quit",
+        scale.string(),
+        choices.join("\n"),
+    );
+
+    fn handler<'a>(key: console::Key, state: PageState) -> Action {
+        match key {
+            console::Key::Char('m') | console::Key::Char('M') => Action::Render(main_page()),
+            console::Key::Char('q') | console::Key::Char('Q') => Action::Destroy,
+            console::Key::Char(c) => {
+                if c >= '0' || c <= '9' {
+                    let choice = c.to_digit(10).unwrap();
+                    let scale = state.scale.clone();
+
+                    if choice as usize == state.correct_choice {
+                        Action::Render(Page {
+                            text: format!(
+                                "✅ That is correct\n\
+                                \n\
+                                {} is a {} scale\n\
+                                \n\
+                                Press any key to continue",
+                                scale.string(),
+                                scale.scale_type().as_ref(),
+                            ),
+                            handler: |k, s| -> Action { Action::Render(interval_quiz()) },
+                            state: state.clone(),
+                        })
+                    } else {
+                        Action::Render(Page {
+                            text: format!(
+                                "❌ That's not correct\n\
+                                \n\
+                                {} is a {} scale\n\
+                                \n\
+                                Press any key to continue",
+                                scale.string(),
+                                scale.scale_type().as_ref(),
+                            ),
+                            handler: |k, s| -> Action { Action::Render(interval_quiz()) },
+                            state: state.clone(),
+                        })
+                    }
+                } else {
+                    Action::Noop
+                }
+            }
+            _ => Action::Noop,
+        }
+    }
+
+    Page {
+        text,
+        handler: handler,
+        state: PageState {
+            correct_choice,
+            scale,
+        },
     }
 }
 
 fn main() {
-    let mut rng = rand::thread_rng();
-    let circle_of_fifths = circle_of_fifths();
-
-    let mut term = Term::buffered_stdout();
+    let term = Term::buffered_stdout();
     let mut screen = QuizScreen::fullscreen(&term);
 
     screen.init().unwrap();
     screen.run(&main_page()).unwrap();
     screen.destroy().unwrap();
+}
+
+enum Action {
+    Noop,
+    Render(Page),
+    Destroy,
+}
+
+#[derive(Clone)]
+struct PageState {
+    correct_choice: usize,
+    scale: music::Scale,
+}
+
+impl PageState {
+    fn empty() -> PageState {
+        PageState {
+            correct_choice: 0,
+            scale: music::Scale::new(&music::Note::parse("C"), music::ScaleType::Major),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Page {
+    text: String,
+    handler: fn(console::Key, PageState) -> Action,
+    state: PageState,
 }
 
 struct QuizScreen<'a> {
@@ -358,19 +177,8 @@ struct QuizScreen<'a> {
     height: usize,
 }
 
-enum Action<'a> {
-    Noop,
-    Render(Page<'a>),
-    Destroy,
-}
-
-struct Page<'a> {
-    text: &'a str,
-    handler: fn(console::Key) -> Action<'a>,
-}
-
 impl QuizScreen<'_> {
-    fn fullscreen(mut term: &console::Term) -> QuizScreen {
+    fn fullscreen(term: &console::Term) -> QuizScreen {
         let (r, c) = term.size();
         QuizScreen {
             term,
@@ -395,31 +203,35 @@ impl QuizScreen<'_> {
     }
 
     fn run(&mut self, start: &Page) -> io::Result<()> {
-        self.render(start)?;
         let mut handler = start.handler;
+        let mut state: PageState = start.state.clone();
+
+        self.render(&start.text)?;
+
         loop {
-            match (handler)(self.term.read_key()?) {
-                Action::Render(page) => {
-                    handler = page.handler;
-                    self.render(&page)
+            match (handler)(self.term.read_key()?, PageState::empty()) {
+                Action::Render(p) => {
+                    self.render(&p.text)?;
+                    handler = p.handler;
+                    state = p.state;
                 }
                 Action::Destroy => break,
-                Action::Noop => Ok(()),
-            }?;
+                Action::Noop => (),
+            }
         }
         Ok(())
     }
 
-    fn render(&mut self, page: &Page) -> io::Result<()> {
+    fn render(&mut self, text: &str) -> io::Result<()> {
         self.term.clear_screen()?;
         self.border()?;
-        self.write_page(page)?;
+        self.write_page(text)?;
         self.term.flush()?;
         Ok(())
     }
 
-    fn write_page(&mut self, page: &Page) -> io::Result<()> {
-        for (i, line) in page.text.split("\n").enumerate() {
+    fn write_page(&mut self, page: &str) -> io::Result<()> {
+        for (i, line) in page.split("\n").enumerate() {
             self.term.move_cursor_to(4, i + 2)?;
             self.term.write(line.as_bytes())?;
         }
@@ -436,25 +248,25 @@ impl QuizScreen<'_> {
         let tr = "┓".as_bytes();
         let br = "┛".as_bytes();
 
-        for col in 0..(self.width - 1) {
+        for col in self.col..(self.width - 1) {
             term.move_cursor_to(col, 0)?;
             term.write(top)?;
             term.move_cursor_to(col, self.height - 1)?;
             term.write(top)?;
         }
 
-        for row in 0..(self.height - 1) {
+        for row in self.row..(self.height - 1) {
             term.move_cursor_to(0, row)?;
             term.write(side)?;
             term.move_cursor_to(self.width - 1, row)?;
             term.write(side)?;
         }
 
-        term.move_cursor_to(0, 0)?;
+        term.move_cursor_to(self.col, self.row)?;
         term.write(tl)?;
-        term.move_cursor_to(0, self.height)?;
+        term.move_cursor_to(self.col, self.height)?;
         term.write(bl)?;
-        term.move_cursor_to(self.width - 1, 0)?;
+        term.move_cursor_to(self.width - 1, self.row)?;
         term.write(tr)?;
         term.move_cursor_to(self.width - 1, self.height)?;
         term.write(br)?;
