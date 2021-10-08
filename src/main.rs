@@ -4,7 +4,15 @@ use std::io::{self, Write};
 
 mod music;
 
-fn coming_soon() -> Page<PageState> {
+fn main() {
+    let mut screen = QuizScreen::fullscreen();
+    match screen.run() {
+        Err(e) => println!("error: {}", e),
+        _ => (),
+    };
+}
+
+fn coming_soon() -> Page<State> {
     Page {
         text: String::from(
             "coming soon...\n\
@@ -14,12 +22,12 @@ fn coming_soon() -> Page<PageState> {
         handler: |k, s| match k {
             _ => Action::Render(main_page()),
         },
-        state: PageState::empty(),
+        state: State::empty(),
     }
 }
 
-fn main_page() -> Page<PageState> {
-    fn main_page_handler<'a>(key: console::Key, state: PageState) -> Action<PageState> {
+fn main_page() -> Page<State> {
+    fn main_page_handler<'a>(key: console::Key, state: State) -> Action<State> {
         match key {
             console::Key::Char('1') => Action::Render(interval_quiz()),
             console::Key::Char('2') => Action::Render(coming_soon()),
@@ -42,11 +50,11 @@ fn main_page() -> Page<PageState> {
         [q] Quit",
         ),
         handler: main_page_handler,
-        state: PageState::empty(),
+        state: State::empty(),
     }
 }
 
-fn interval_quiz() -> Page<PageState> {
+fn interval_quiz() -> Page<State> {
     let rng = rand::thread_rng();
     let circle_of_fifths = music::circle_of_fifths();
 
@@ -82,7 +90,7 @@ fn interval_quiz() -> Page<PageState> {
         choices.join("\n"),
     );
 
-    fn handler(key: console::Key, state: PageState) -> Action<PageState> {
+    fn handler(key: console::Key, state: State) -> Action<State> {
         match key {
             console::Key::Char('m') | console::Key::Char('M') => Action::Render(main_page()),
             console::Key::Char('q') | console::Key::Char('Q') => Action::Destroy,
@@ -102,9 +110,7 @@ fn interval_quiz() -> Page<PageState> {
                                 scale.string(),
                                 scale.scale_type().as_ref(),
                             ),
-                            handler: |k, s| -> Action<PageState> {
-                                Action::Render(interval_quiz())
-                            },
+                            handler: |_, _| -> Action<State> { Action::Render(interval_quiz()) },
                             state: state.clone(),
                         })
                     } else {
@@ -118,9 +124,7 @@ fn interval_quiz() -> Page<PageState> {
                                 scale.string(),
                                 scale.scale_type().as_ref(),
                             ),
-                            handler: |k, s| -> Action<PageState> {
-                                Action::Render(interval_quiz())
-                            },
+                            handler: |_, _| -> Action<State> { Action::Render(interval_quiz()) },
                             state: state.clone(),
                         })
                     }
@@ -135,37 +139,28 @@ fn interval_quiz() -> Page<PageState> {
     Page {
         text,
         handler: handler,
-        state: PageState {
+        state: State {
             correct_choice: correct_choice + 1, // user enters 1-indexed values
             scale,
         },
     }
 }
 
-fn main() {
-    let term = Term::buffered_stdout();
-    let mut screen = QuizScreen::fullscreen(term);
-    match screen.run() {
-        Err(e) => println!("error: {}", e),
-        _ => (),
-    };
-}
-
-enum Action<T> {
+enum Action<Data> {
     Noop,
-    Render(Page<T>),
+    Render(Page<Data>),
     Destroy,
 }
 
 #[derive(Clone)]
-struct PageState {
+struct State {
     correct_choice: usize,
     scale: music::Scale,
 }
 
-impl PageState {
-    fn empty() -> PageState {
-        PageState {
+impl State {
+    fn empty() -> State {
+        State {
             correct_choice: 0,
             scale: music::Scale::new(&music::Note::parse("C"), music::ScaleType::Major),
         }
@@ -188,7 +183,8 @@ struct QuizScreen {
 }
 
 impl QuizScreen {
-    fn fullscreen(term: console::Term) -> QuizScreen {
+    fn fullscreen() -> QuizScreen {
+        let term = Term::buffered_stdout();
         let (r, c) = term.size();
         QuizScreen {
             term,
