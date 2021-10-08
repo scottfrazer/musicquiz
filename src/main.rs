@@ -144,7 +144,7 @@ fn interval_quiz() -> Page<PageState> {
 
 fn main() {
     let term = Term::buffered_stdout();
-    let mut screen = QuizScreen::fullscreen(&term);
+    let mut screen = QuizScreen::fullscreen(term);
 
     screen.init().unwrap();
     screen.run().unwrap();
@@ -179,16 +179,16 @@ struct Page<T> {
     state: T,
 }
 
-struct QuizScreen<'a> {
-    term: &'a console::Term,
+struct QuizScreen {
+    term: console::Term,
     row: usize,
     col: usize,
     width: usize,
     height: usize,
 }
 
-impl QuizScreen<'_> {
-    fn fullscreen(term: &console::Term) -> QuizScreen {
+impl QuizScreen {
+    fn fullscreen(term: console::Term) -> QuizScreen {
         let (r, c) = term.size();
         QuizScreen {
             term,
@@ -246,8 +246,8 @@ impl QuizScreen<'_> {
         Ok(())
     }
 
-    fn border(&self) -> io::Result<()> {
-        let mut term = self.term;
+    fn border(&mut self) -> io::Result<()> {
+        let mut term = &self.term;
 
         let side = "┃".as_bytes();
         let top = "━".as_bytes();
