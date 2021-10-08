@@ -4,20 +4,26 @@ use std::io::{self, Write};
 
 mod music;
 
-fn main_page() -> Page {
-    fn main_page_handler<'a>(key: console::Key, state: PageState) -> Action {
+fn coming_soon() -> Page<PageState> {
+    Page {
+        text: String::from(
+            "coming soon...\n\
+             \n\
+             press any key to continue",
+        ),
+        handler: |k, s| match k {
+            _ => Action::Render(main_page()),
+        },
+        state: PageState::empty(),
+    }
+}
+
+fn main_page() -> Page<PageState> {
+    fn main_page_handler<'a>(key: console::Key, state: PageState) -> Action<PageState> {
         match key {
-            console::Key::Char('1') => Action::Render(Page {
-                text: String::from("1\n2\n3\n4\n5\n6\n7\n8\n9\n10"),
-                handler: main_page_handler,
-                state: PageState::empty(),
-            }),
-            console::Key::Char('2') => Action::Render(Page {
-                text: String::from("A\nB\nC\nD\nE\nF\nG\nH\nI\nJ"),
-                handler: main_page_handler,
-                state: PageState::empty(),
-            }),
-            console::Key::Char('3') => Action::Render(interval_quiz()),
+            console::Key::Char('1') => Action::Render(interval_quiz()),
+            console::Key::Char('2') => Action::Render(coming_soon()),
+            console::Key::Char('3') => Action::Render(coming_soon()),
             console::Key::Char('q') | console::Key::Char('Q') => Action::Destroy,
             _ => Action::Noop,
         }
@@ -29,8 +35,8 @@ fn main_page() -> Page {
         \n\
         What would you like to do?\n\
         \n\
-        [1] Intervals\n\
-        [2] Scale Types\n\
+        [1] Scale Types\n\
+        [2] Intervals\n\
         [3] Chords\n\
         \n\
         [q] Quit",
@@ -40,7 +46,7 @@ fn main_page() -> Page {
     }
 }
 
-fn interval_quiz() -> Page {
+fn interval_quiz() -> Page<PageState> {
     let rng = rand::thread_rng();
     let circle_of_fifths = music::circle_of_fifths();
 
@@ -76,7 +82,7 @@ fn interval_quiz() -> Page {
         choices.join("\n"),
     );
 
-    fn handler<'a>(key: console::Key, state: PageState) -> Action {
+    fn handler(key: console::Key, state: PageState) -> Action<PageState> {
         match key {
             console::Key::Char('m') | console::Key::Char('M') => Action::Render(main_page()),
             console::Key::Char('q') | console::Key::Char('Q') => Action::Destroy,
@@ -96,7 +102,9 @@ fn interval_quiz() -> Page {
                                 scale.string(),
                                 scale.scale_type().as_ref(),
                             ),
-                            handler: |k, s| -> Action { Action::Render(interval_quiz()) },
+                            handler: |k, s| -> Action<PageState> {
+                                Action::Render(interval_quiz())
+                            },
                             state: state.clone(),
                         })
                     } else {
@@ -110,7 +118,9 @@ fn interval_quiz() -> Page {
                                 scale.string(),
                                 scale.scale_type().as_ref(),
                             ),
-                            handler: |k, s| -> Action { Action::Render(interval_quiz()) },
+                            handler: |k, s| -> Action<PageState> {
+                                Action::Render(interval_quiz())
+                            },
                             state: state.clone(),
                         })
                     }
@@ -126,7 +136,7 @@ fn interval_quiz() -> Page {
         text,
         handler: handler,
         state: PageState {
-            correct_choice,
+            correct_choice: correct_choice + 1, // user enters 1-indexed values
             scale,
         },
     }
@@ -137,13 +147,13 @@ fn main() {
     let mut screen = QuizScreen::fullscreen(&term);
 
     screen.init().unwrap();
-    screen.run(&main_page()).unwrap();
+    screen.run().unwrap();
     screen.destroy().unwrap();
 }
 
-enum Action {
+enum Action<T> {
     Noop,
-    Render(Page),
+    Render(Page<T>),
     Destroy,
 }
 
@@ -163,10 +173,10 @@ impl PageState {
 }
 
 #[derive(Clone)]
-struct Page {
+struct Page<T> {
     text: String,
-    handler: fn(console::Key, PageState) -> Action,
-    state: PageState,
+    handler: fn(console::Key, T) -> Action<T>,
+    state: T,
 }
 
 struct QuizScreen<'a> {
@@ -202,23 +212,21 @@ impl QuizScreen<'_> {
         Ok(())
     }
 
-    fn run(&mut self, start: &Page) -> io::Result<()> {
-        let mut handler = start.handler;
-        let mut state: PageState = start.state.clone();
-
-        self.render(&start.text)?;
+    fn run(&mut self) -> io::Result<()> {
+        let mut current = main_page();
+        self.render(&current.text)?;
 
         loop {
-            match (handler)(self.term.read_key()?, PageState::empty()) {
+            match (current.handler)(self.term.read_key()?, current.state.clone()) {
                 Action::Render(p) => {
                     self.render(&p.text)?;
-                    handler = p.handler;
-                    state = p.state;
+                    current = p;
                 }
                 Action::Destroy => break,
                 Action::Noop => (),
             }
         }
+
         Ok(())
     }
 

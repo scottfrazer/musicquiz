@@ -202,13 +202,7 @@ impl Scale {
 
     pub fn string(&self) -> String {
         let strings: Vec<String> = self.notes.iter().map(|x| x.string()).collect();
-        let scale = strings.join(" ");
-        format!(
-            "{} {}: {}",
-            self.tonic().string(),
-            self.scale_type.as_ref(),
-            scale,
-        )
+        strings.join(" ")
     }
 
     pub fn scale_type(&self) -> ScaleType {
