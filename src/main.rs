@@ -145,10 +145,10 @@ fn interval_quiz() -> Page<PageState> {
 fn main() {
     let term = Term::buffered_stdout();
     let mut screen = QuizScreen::fullscreen(term);
-
-    screen.init().unwrap();
-    screen.run().unwrap();
-    screen.destroy().unwrap();
+    match screen.run() {
+        Err(e) => println!("error: {}", e),
+        _ => (),
+    };
 }
 
 enum Action<T> {
@@ -214,32 +214,36 @@ impl QuizScreen {
 
     fn run(&mut self) -> io::Result<()> {
         let mut current = main_page();
-        self.render(&current.text)?;
+
+        self.init()?;
+        self.render(&current)?;
 
         loop {
-            match (current.handler)(self.term.read_key()?, current.state.clone()) {
+            current = match (current.handler)(self.term.read_key()?, current.state.clone()) {
                 Action::Render(p) => {
-                    self.render(&p.text)?;
-                    current = p;
+                    self.render(&p)?;
+                    p
                 }
                 Action::Destroy => break,
-                Action::Noop => (),
+                Action::Noop => current,
             }
         }
+
+        self.destroy()?;
 
         Ok(())
     }
 
-    fn render(&mut self, text: &str) -> io::Result<()> {
+    fn render<T>(&mut self, page: &Page<T>) -> io::Result<()> {
         self.term.clear_screen()?;
         self.border()?;
-        self.write_page(text)?;
+        self.write_page(page)?;
         self.term.flush()?;
         Ok(())
     }
 
-    fn write_page(&mut self, page: &str) -> io::Result<()> {
-        for (i, line) in page.split("\n").enumerate() {
+    fn write_page<T>(&mut self, page: &Page<T>) -> io::Result<()> {
+        for (i, line) in page.text.split("\n").enumerate() {
             self.term.move_cursor_to(4, i + 2)?;
             self.term.write(line.as_bytes())?;
         }
